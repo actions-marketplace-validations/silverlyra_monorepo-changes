@@ -6,11 +6,12 @@ import * as core from '@actions/core'
 import type {Workspace} from './workspace'
 
 export function getWorkspaceChanges(
-  workspaces: Map<string, Workspace>
+  workspaces: Map<string, Workspace>,
+  changedFiles: Set<string>
 ): Map<string, boolean> {
   const changes: Map<string, boolean> = new Map()
+  const files = [...changedFiles]
 
-  const files = [...getChangedFiles()]
   if (core.isDebug()) {
     for (const file of files.sort((a, b) => a.localeCompare(b))) {
       core.debug(`Changed: ${file}`)
@@ -44,7 +45,7 @@ export function getChangedFiles(): Set<string> {
 
   const {stdout} = spawnSync(
     'git',
-    ['diff', '--name-status', '--diff-filter=d', `${base}..HEAD`],
+    ['diff', '--name-status', '--diff-filter=d', `${base}...HEAD`],
     {stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf-8', timeout: 5000}
   )
   return new Set(
@@ -78,17 +79,16 @@ export function fetchComparisonBase(): string {
     }
   }
 
-  core.info(`Comparing against ${base} (${parseRevision(base)})`)
-
+  core.info(`Looking for changes from ${base} (${parseRevision(base)})`)
   return base
 }
 
 export function getComparisonBase(): string {
   const base = process.env.GITHUB_BASE_REF
-  return base ? base.replace(/^refs\/heads\//, '') : 'HEAD^'
+  return base ? base.replace(/^refs\/(?:heads|tags)\//, '') : 'HEAD~'
 }
 
-function parseRevision(commit: string): string {
+export function parseRevision(commit: string): string {
   const {stdout} = spawnSync('git', ['rev-parse', '--verify', commit], {
     stdio: ['ignore', 'pipe', 'inherit'],
     encoding: 'utf-8',

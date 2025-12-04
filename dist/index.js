@@ -33,13 +33,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.getComparisonBase = exports.fetchComparisonBase = exports.getChangedFiles = exports.getWorkspaceChanges = void 0;
+exports.parseRevision = exports.getComparisonBase = exports.fetchComparisonBase = exports.getChangedFiles = exports.getWorkspaceChanges = void 0;
 const child_process_1 = __nccwpck_require__(2081);
 const path_1 = __importDefault(__nccwpck_require__(1017));
 const core = __importStar(__nccwpck_require__(2186));
-function getWorkspaceChanges(workspaces) {
+function getWorkspaceChanges(workspaces, changedFiles) {
     const changes = new Map();
-    const files = [...getChangedFiles()];
+    const files = [...changedFiles];
     if (core.isDebug()) {
         for (const file of files.sort((a, b) => a.localeCompare(b))) {
             core.debug(`Changed: ${file}`);
@@ -65,7 +65,7 @@ function getWorkspaceChanges(workspaces) {
 exports.getWorkspaceChanges = getWorkspaceChanges;
 function getChangedFiles() {
     const base = fetchComparisonBase();
-    const { stdout } = (0, child_process_1.spawnSync)('git', ['diff', '--name-status', '--diff-filter=d', `${base}..HEAD`], { stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf-8', timeout: 5000 });
+    const { stdout } = (0, child_process_1.spawnSync)('git', ['diff', '--name-status', '--diff-filter=d', `${base}...HEAD`], { stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf-8', timeout: 5000 });
     return new Set(stdout
         .split('\n')
         .filter(Boolean)
@@ -93,13 +93,13 @@ function fetchComparisonBase() {
             });
         }
     }
-    core.info(`Comparing against ${base} (${parseRevision(base)})`);
+    core.info(`Looking for changes from ${base} (${parseRevision(base)})`);
     return base;
 }
 exports.fetchComparisonBase = fetchComparisonBase;
 function getComparisonBase() {
     const base = process.env.GITHUB_BASE_REF;
-    return base ? base.replace(/^refs\/heads\//, '') : 'HEAD^';
+    return base ? base.replace(/^refs\/(?:heads|tags)\//, '') : 'HEAD~';
 }
 exports.getComparisonBase = getComparisonBase;
 function parseRevision(commit) {
@@ -110,6 +110,7 @@ function parseRevision(commit) {
     });
     return stdout.trim();
 }
+exports.parseRevision = parseRevision;
 function hasCommit(commit) {
     const { status } = (0, child_process_1.spawnSync)('git', ['rev-parse', '--verify', commit], {
         stdio: 'ignore'
@@ -200,22 +201,112 @@ function run() {
             // eslint-disable-next-line no-console
             console.dir(workspaces, { colors: true });
         }
-        const changes = (0, compare_1.getWorkspaceChanges)(workspaces);
+        const files = (0, compare_1.getChangedFiles)();
+        const changes = (0, compare_1.getWorkspaceChanges)(workspaces, files);
         for (const base of [...changes.keys()].sort((a, b) => a.localeCompare(b))) {
             if (changes.get(base))
                 core.info(`Workspace changed: ${base}`);
         }
+        if ([...files].some(f => f.startsWith('.github/'))) {
+            core.info('.github/ changed; treating all workspaces as needing a rebuild');
+            for (const base of changes.keys()) {
+                changes.set(base, true);
+            }
+        }
         const paths = new Map([...workspaces.values()]
             .map(workspace => [...workspace.aliases].map(alias => [alias, workspace.path]))
             .flat(1));
+        const base = (0, compare_1.getComparisonBase)();
+        core.setOutput('base', base);
+        core.setOutput('base_commit', (0, compare_1.parseRevision)(base));
         core.setOutput('changes', JSON.stringify(Object.fromEntries(changes)));
         core.setOutput('paths', JSON.stringify(Object.fromEntries(paths)));
+        core.setOutput('workspaces', JSON.stringify(Object.fromEntries([...workspaces.values()].map(workspace => {
+            var _a;
+            return [
+                workspace.path,
+                Object.assign(Object.assign({}, workspace), { changed: (_a = changes.get(workspace.path)) !== null && _a !== void 0 ? _a : null })
+            ];
+        })), (_key, value) => (value instanceof Set ? [...value] : value)));
         core.setOutput('time', now.toJSON());
         core.setOutput('time_unix', Math.floor(+now / 1000));
         core.setOutput('time_unix_ms', +now);
     });
 }
 run().catch(core.setFailed);
+
+
+/***/ }),
+
+/***/ 8644:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const promises_1 = __nccwpck_require__(3292);
+const path_1 = __nccwpck_require__(1017);
+const core = __importStar(__nccwpck_require__(2186));
+/**
+ * Read a workspace definition file, feeding it through the given `parser`.
+ *
+ * Fails the action if either reading or parsing throws an exception.
+ */
+function read(path, parser) {
+    return __awaiter(this, void 0, void 0, function* () {
+        core.debug(`  read: ${JSON.stringify((0, path_1.resolve)(path))}`);
+        let contents;
+        try {
+            contents = yield (0, promises_1.readFile)(path, 'utf-8');
+        }
+        catch (err) {
+            core.setFailed(`Failed to read ${(0, path_1.resolve)(path)}:`);
+            core.error(err instanceof Error ? err : `${err}`);
+            process.exit(1);
+        }
+        try {
+            return parser(contents);
+        }
+        catch (err) {
+            core.setFailed(`Failed to parse ${(0, path_1.resolve)(path)}:`);
+            core.error(err instanceof Error ? err : `${err}`);
+            process.exit(1);
+        }
+    });
+}
+exports["default"] = read;
 
 
 /***/ }),
@@ -267,6 +358,7 @@ const path_1 = __importDefault(__nccwpck_require__(1017));
 const core = __importStar(__nccwpck_require__(2186));
 const toml_1 = __importDefault(__nccwpck_require__(4920));
 const glob_1 = __nccwpck_require__(7975);
+const read_1 = __importDefault(__nccwpck_require__(8644));
 function detect() {
     return __awaiter(this, void 0, void 0, function* () {
         const packages = yield discover();
@@ -305,8 +397,7 @@ exports.discover = discover;
 function visit(base) {
     var _a;
     return __awaiter(this, void 0, void 0, function* () {
-        const contents = yield promises_1.default.readFile(path_1.default.join(base, 'Cargo.toml'), 'utf-8');
-        const pkg = toml_1.default.parse(contents);
+        const pkg = yield (0, read_1.default)(path_1.default.join(base, 'Cargo.toml'), toml_1.default.parse);
         const name = (_a = pkg.package) === null || _a === void 0 ? void 0 : _a.name;
         if (!name)
             return null;
@@ -477,6 +568,7 @@ const promises_1 = __importDefault(__nccwpck_require__(3292));
 const path_1 = __importDefault(__nccwpck_require__(1017));
 const core = __importStar(__nccwpck_require__(2186));
 const glob_1 = __nccwpck_require__(7975);
+const read_1 = __importDefault(__nccwpck_require__(8644));
 function detect() {
     return __awaiter(this, void 0, void 0, function* () {
         const packages = yield discover();
@@ -514,25 +606,19 @@ exports.discover = discover;
 function visit(base) {
     var _a, _b;
     return __awaiter(this, void 0, void 0, function* () {
-        try {
-            const pkg = JSON.parse(yield promises_1.default.readFile(path_1.default.join(base, 'package.json'), 'utf-8'));
-            return {
-                path: base,
-                aliases: new Set([pkg.name]),
-                dependencies: new Set(),
-                npm: {
-                    name: pkg.name,
-                    dependencies: new Set([
-                        ...Object.keys((_a = pkg.dependencies) !== null && _a !== void 0 ? _a : {}),
-                        ...Object.keys((_b = pkg.devDependencies) !== null && _b !== void 0 ? _b : {})
-                    ])
-                }
-            };
-        }
-        catch (err) {
-            core.debug(`npm: failed to visit ${base}: ${err}`);
-            return null;
-        }
+        const pkg = yield (0, read_1.default)(path_1.default.join(base, 'package.json'), JSON.parse);
+        return {
+            path: base,
+            aliases: new Set([pkg.name]),
+            dependencies: new Set(),
+            npm: {
+                name: pkg.name,
+                dependencies: new Set([
+                    ...Object.keys((_a = pkg.dependencies) !== null && _a !== void 0 ? _a : {}),
+                    ...Object.keys((_b = pkg.devDependencies) !== null && _b !== void 0 ? _b : {})
+                ])
+            }
+        };
     });
 }
 exports.visit = visit;
